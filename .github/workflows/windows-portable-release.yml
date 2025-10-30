@@ -108,6 +108,7 @@ jobs:
       - name: Copy Dependencies from MSYS2
         shell: msys2 {0}
         run: |
+          set -e  # Exit on error, but we'll handle specific commands
           echo "=== Copying dependencies from MSYS2 environment ==="
 
           OUTPUT_DIR="UxPlay-Portable-Windows"
@@ -117,22 +118,49 @@ jobs:
           cp build/uxplay.exe "$OUTPUT_DIR/bin/"
           echo "✓ Copied uxplay.exe"
 
+          # Debug: Check MSYS2 paths
+          echo "Debugging MSYS2 paths..."
+          echo "Current directory: $(pwd)"
+          echo "Checking /ucrt64/bin..."
+          ls -la /ucrt64/bin/ | head -20
+          echo ""
+          echo "Counting DLLs in /ucrt64/bin..."
+          DLL_CHECK=$(ls /ucrt64/bin/*.dll 2>/dev/null | wc -l)
+          echo "Found $DLL_CHECK DLLs in /ucrt64/bin"
+          echo ""
+
           # Copy all DLLs from MSYS2 UCRT64
           echo "Copying DLLs from /ucrt64/bin..."
-          cp /ucrt64/bin/*.dll "$OUTPUT_DIR/bin/" 2>/dev/null || echo "⚠ Warning: Some DLL copying may have failed"
-          DLL_COUNT=$(ls "$OUTPUT_DIR/bin/*.dll" 2>/dev/null | wc -l)
-          echo "✓ Copied $DLL_COUNT DLL files"
+          set +e  # Don't exit on error for this command
+          cp /ucrt64/bin/*.dll "$OUTPUT_DIR/bin/" 2>&1
+          CP_EXIT=$?
+          set -e  # Re-enable exit on error
+
+          if [ $CP_EXIT -eq 0 ]; then
+            DLL_COUNT=$(ls "$OUTPUT_DIR/bin"/*.dll 2>/dev/null | wc -l)
+            echo "✓ Copied $DLL_COUNT DLL files"
+          else
+            echo "⚠ Warning: DLL copying failed with exit code $CP_EXIT"
+            echo "Trying alternative method..."
+            set +e
+            find /ucrt64/bin -name "*.dll" -exec cp {} "$OUTPUT_DIR/bin/" \; 2>&1 | head -10
+            set -e
+            DLL_COUNT=$(ls "$OUTPUT_DIR/bin"/*.dll 2>/dev/null | wc -l)
+            echo "Copied $DLL_COUNT DLL files using find"
+          fi
 
           # Copy GStreamer plugins
+          echo ""
           echo "Copying GStreamer plugins..."
           if [ -d "/ucrt64/lib/gstreamer-1.0" ]; then
             cp -r /ucrt64/lib/gstreamer-1.0 "$OUTPUT_DIR/lib/"
-            PLUGIN_COUNT=$(ls "$OUTPUT_DIR/lib/gstreamer-1.0/*.dll" 2>/dev/null | wc -l)
+            PLUGIN_COUNT=$(ls "$OUTPUT_DIR/lib/gstreamer-1.0"/*.dll 2>/dev/null | wc -l)
             echo "✓ Copied $PLUGIN_COUNT GStreamer plugins"
           else
             echo "⚠ GStreamer plugins directory not found"
           fi
 
+          echo ""
           echo "✓ Dependencies copied successfully"
 
       - name: Create Portable Package
