@@ -63,6 +63,14 @@ jobs:
           echo "Build complete!"
           ls -lh uxplay.exe
 
+      - name: Debug - Find GStreamer Installation
+        shell: pwsh
+        run: |
+          Write-Host "Searching for GStreamer installation..."
+          Get-ChildItem "C:\msys64\ucrt64\lib" -Directory | Select-Object Name
+          Write-Host "`nSearching for gstreamer plugins..."
+          Get-ChildItem "C:\msys64\ucrt64\lib" -Recurse -Filter "*gst*.dll" -ErrorAction SilentlyContinue | Select-Object -First 10 DirectoryName | Format-Table
+
       - name: Create Portable Package
         shell: pwsh
         run: |
@@ -82,7 +90,23 @@ jobs:
 
           # Copy GStreamer plugins
           Write-Host "Copying GStreamer plugins..."
-          Copy-Item "C:\msys64\ucrt64\lib\gstreamer-1.0" "$outputDir\lib\" -Recurse -Force
+          $gstPluginDir = "C:\msys64\ucrt64\lib\gstreamer-1.0"
+          if (Test-Path $gstPluginDir) {
+            Copy-Item $gstPluginDir "$outputDir\lib\" -Recurse -Force
+            Write-Host "  ✓ GStreamer plugins copied"
+          } else {
+            Write-Host "  ⚠ GStreamer plugins directory not found at $gstPluginDir"
+            Write-Host "  Checking alternative locations..."
+
+            # Try alternative location
+            $altPluginDir = "C:\msys64\ucrt64\lib\gst-plugins"
+            if (Test-Path $altPluginDir) {
+              Copy-Item $altPluginDir "$outputDir\lib\gstreamer-1.0" -Recurse -Force
+              Write-Host "  ✓ Found and copied from alternative location"
+            } else {
+              Write-Host "  ⚠ WARNING: No GStreamer plugins found - package may not work correctly"
+            }
+          }
 
           # Create launcher
           $launcher = @"
