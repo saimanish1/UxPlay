@@ -105,53 +105,42 @@ jobs:
             }
           }
 
+      - name: Copy Dependencies from MSYS2
+        shell: msys2 {0}
+        run: |
+          echo "=== Copying dependencies from MSYS2 environment ==="
+
+          OUTPUT_DIR="UxPlay-Portable-Windows"
+          mkdir -p "$OUTPUT_DIR/bin" "$OUTPUT_DIR/lib"
+
+          # Copy uxplay.exe from build directory
+          cp build/uxplay.exe "$OUTPUT_DIR/bin/"
+          echo "✓ Copied uxplay.exe"
+
+          # Copy all DLLs from MSYS2 UCRT64
+          echo "Copying DLLs from /ucrt64/bin..."
+          cp /ucrt64/bin/*.dll "$OUTPUT_DIR/bin/" 2>/dev/null || echo "⚠ Warning: Some DLL copying may have failed"
+          DLL_COUNT=$(ls "$OUTPUT_DIR/bin/*.dll" 2>/dev/null | wc -l)
+          echo "✓ Copied $DLL_COUNT DLL files"
+
+          # Copy GStreamer plugins
+          echo "Copying GStreamer plugins..."
+          if [ -d "/ucrt64/lib/gstreamer-1.0" ]; then
+            cp -r /ucrt64/lib/gstreamer-1.0 "$OUTPUT_DIR/lib/"
+            PLUGIN_COUNT=$(ls "$OUTPUT_DIR/lib/gstreamer-1.0/*.dll" 2>/dev/null | wc -l)
+            echo "✓ Copied $PLUGIN_COUNT GStreamer plugins"
+          else
+            echo "⚠ GStreamer plugins directory not found"
+          fi
+
+          echo "✓ Dependencies copied successfully"
+
       - name: Create Portable Package
         shell: pwsh
         run: |
           $outputDir = "UxPlay-Portable-Windows"
 
-          Write-Host "Creating portable package..."
-          New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-          New-Item -ItemType Directory -Path "$outputDir\bin" -Force | Out-Null
-          New-Item -ItemType Directory -Path "$outputDir\lib" -Force | Out-Null
-
-          # Copy uxplay.exe
-          Copy-Item "build\uxplay.exe" "$outputDir\bin\"
-
-          # Copy all MSYS2 DLLs
-          Write-Host "Copying MSYS2 dependencies..."
-          if (Test-Path "C:\msys64\ucrt64\bin") {
-            $dlls = Get-ChildItem "C:\msys64\ucrt64\bin\*.dll" -ErrorAction SilentlyContinue
-            if ($dlls.Count -gt 0) {
-              Copy-Item "C:\msys64\ucrt64\bin\*.dll" "$outputDir\bin\" -Force
-              Write-Host "  ✓ Copied $($dlls.Count) DLL files"
-            } else {
-              Write-Host "  ✗ No DLL files found in C:\msys64\ucrt64\bin"
-            }
-          } else {
-            Write-Host "  ✗ ERROR: C:\msys64\ucrt64\bin directory not found!"
-            exit 1
-          }
-
-          # Copy GStreamer plugins
-          Write-Host "Copying GStreamer plugins..."
-          $gstPluginDir = "C:\msys64\ucrt64\lib\gstreamer-1.0"
-          if (Test-Path $gstPluginDir) {
-            Copy-Item $gstPluginDir "$outputDir\lib\" -Recurse -Force
-            Write-Host "  ✓ GStreamer plugins copied"
-          } else {
-            Write-Host "  ⚠ GStreamer plugins directory not found at $gstPluginDir"
-            Write-Host "  Checking alternative locations..."
-
-            # Try alternative location
-            $altPluginDir = "C:\msys64\ucrt64\lib\gst-plugins"
-            if (Test-Path $altPluginDir) {
-              Copy-Item $altPluginDir "$outputDir\lib\gstreamer-1.0" -Recurse -Force
-              Write-Host "  ✓ Found and copied from alternative location"
-            } else {
-              Write-Host "  ⚠ WARNING: No GStreamer plugins found - package may not work correctly"
-            }
-          }
+          Write-Host "Creating launcher and README..."
 
           # Create launcher
           $launcher = @"
