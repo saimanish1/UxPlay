@@ -1,0 +1,184 @@
+name: Build Windows Portable Release
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build-windows-portable:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-libplist
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
+            mingw-w64-ucrt-x86_64-gst-plugins-bad
+            mingw-w64-ucrt-x86_64-gst-libav
+            mingw-w64-ucrt-x86_64-openssl
+
+      - name: Install Bonjour SDK
+        shell: pwsh
+        run: |
+          # Use cached Bonjour SDK files from repository
+          Write-Host "Setting up cached Bonjour SDK..."
+
+          $bonjourInclude = "C:\Program Files\Bonjour SDK\Include"
+          $bonjourLib = "C:\Program Files\Bonjour SDK\Lib\x64"
+
+          New-Item -ItemType Directory -Path $bonjourInclude -Force | Out-Null
+          New-Item -ItemType Directory -Path $bonjourLib -Force | Out-Null
+
+          Copy-Item ".github\bonjour-sdk\Include\dns_sd.h" $bonjourInclude -Force
+          Copy-Item ".github\bonjour-sdk\Lib\x64\dnssd.lib" $bonjourLib -Force
+
+          Write-Host "✓ Bonjour SDK files installed"
+
+      - name: Build UxPlay
+        shell: msys2 {0}
+        run: |
+          mkdir build
+          cd build
+          cmake ..
+          ninja
+
+          if [ ! -f "uxplay.exe" ]; then
+            echo "ERROR: uxplay.exe not found after build!"
+            exit 1
+          fi
+
+          echo "Build complete!"
+          ls -lh uxplay.exe
+
+      - name: Create Portable Package
+        shell: pwsh
+        run: |
+          $outputDir = "UxPlay-Portable-Windows"
+
+          Write-Host "Creating portable package..."
+          New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+          New-Item -ItemType Directory -Path "$outputDir\bin" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$outputDir\lib" -Force | Out-Null
+
+          # Copy uxplay.exe
+          Copy-Item "build\uxplay.exe" "$outputDir\bin\"
+
+          # Copy all MSYS2 DLLs
+          Write-Host "Copying MSYS2 dependencies..."
+          Copy-Item "C:\msys64\ucrt64\bin\*.dll" "$outputDir\bin\" -ErrorAction SilentlyContinue
+
+          # Copy GStreamer plugins
+          Write-Host "Copying GStreamer plugins..."
+          Copy-Item "C:\msys64\ucrt64\lib\gstreamer-1.0" "$outputDir\lib\" -Recurse -Force
+
+          # Create launcher
+          $launcher = @"
+          @echo off
+          title UxPlay - AirPlay Server
+
+          set PATH=%~dp0bin;%PATH%
+          set GST_PLUGIN_PATH=%~dp0lib\gstreamer-1.0
+
+          echo.
+          echo ========================================
+          echo      UxPlay - AirPlay Server
+          echo ========================================
+          echo.
+          echo Starting AirPlay server...
+          echo Press Ctrl+C to stop.
+          echo.
+
+          cd /d "%~dp0bin"
+          uxplay.exe -n "UxPlay" -vd d3d12h265dec -vs d3d12videosink -h265
+
+          pause
+          "@
+
+          $launcher | Out-File -FilePath "$outputDir\Start_UxPlay.bat" -Encoding ASCII
+
+          # Create README
+          $readme = @"
+          # UxPlay Portable for Windows
+
+          ## Quick Start
+
+          1. Ensure "Bonjour Service" is running on Windows
+             - Check in Services (services.msc)
+             - If not installed, download from Apple
+
+          2. Double-click **Start_UxPlay.bat**
+
+          3. On your iPhone/iPad:
+             - Open Control Center
+             - Tap Screen Mirroring
+             - Select "UxPlay"
+
+          ## Configuration
+
+          - Resolution: Auto-detected (up to 1170x2532 for iPhone 14 Pro Max)
+          - Codec: H.265 (HEVC) hardware accelerated
+          - Decoder: Direct3D 12 (NVIDIA/AMD GPU required)
+          - Latency: ~10-30ms
+
+          ## System Requirements
+
+          - Windows 10/11 (64-bit)
+          - Bonjour Service (Apple)
+          - GPU with Direct3D 12 and H.265/HEVC support
+          - WiFi connection (same network as iOS device)
+
+          ## Troubleshooting
+
+          - Firewall: Allow ports TCP 7100,7000,7001 and UDP 7011,6001,6000
+          - GPU: Ensure D3D12 and H.265 hardware decoding is supported
+          - Network: iPhone and PC must be on same WiFi network
+
+          ## More Information
+
+          GitHub: https://github.com/FDH2/UxPlay
+          "@
+
+          $readme | Out-File -FilePath "$outputDir\README.md" -Encoding UTF8
+
+          # Calculate package size
+          $size = (Get-ChildItem $outputDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
+          Write-Host "Package size: $([math]::Round($size, 2)) MB"
+
+          # Create ZIP
+          $version = "${{ github.ref_name }}"
+          if ($version -eq "") { $version = "dev" }
+          $zipName = "UxPlay-Windows-Portable-$version.zip"
+
+          Compress-Archive -Path "$outputDir\*" -DestinationPath $zipName -Force
+
+          Write-Host "Created: $zipName"
+          echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+
+      - name: Upload Release Asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.ZIP_NAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifact (for workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: UxPlay-Windows-Portable
+          path: UxPlay-Portable-Windows/**/*
+          retention-days: 30
