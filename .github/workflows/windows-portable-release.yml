@@ -63,13 +63,47 @@ jobs:
           echo "Build complete!"
           ls -lh uxplay.exe
 
-      - name: Debug - Find GStreamer Installation
+      - name: Debug - Find MSYS2 Installation
         shell: pwsh
         run: |
-          Write-Host "Searching for GStreamer installation..."
-          Get-ChildItem "C:\msys64\ucrt64\lib" -Directory | Select-Object Name
-          Write-Host "`nSearching for gstreamer plugins..."
-          Get-ChildItem "C:\msys64\ucrt64\lib" -Recurse -Filter "*gst*.dll" -ErrorAction SilentlyContinue | Select-Object -First 10 DirectoryName | Format-Table
+          Write-Host "=== Searching for MSYS2 installation ===" -ForegroundColor Cyan
+
+          Write-Host "`nChecking C:\msys64..."
+          Test-Path "C:\msys64" | Out-Host
+          if (Test-Path "C:\msys64") {
+            Write-Host "MSYS2 root exists"
+            Get-ChildItem "C:\msys64" -Directory | Select-Object Name | Out-Host
+          }
+
+          Write-Host "`nChecking MSYS2 bin directory..."
+          if (Test-Path "C:\msys64\ucrt64\bin") {
+            $dllCount = (Get-ChildItem "C:\msys64\ucrt64\bin\*.dll" -ErrorAction SilentlyContinue).Count
+            Write-Host "Found $dllCount DLL files in C:\msys64\ucrt64\bin"
+          } else {
+            Write-Host "ERROR: C:\msys64\ucrt64\bin not found!"
+          }
+
+          Write-Host "`nChecking MSYS2 lib directory..."
+          if (Test-Path "C:\msys64\ucrt64\lib") {
+            Get-ChildItem "C:\msys64\ucrt64\lib" -Directory -ErrorAction SilentlyContinue | Select-Object Name | Out-Host
+          } else {
+            Write-Host "ERROR: C:\msys64\ucrt64\lib not found!"
+          }
+
+          Write-Host "`nSearching for GStreamer plugins..."
+          $pluginPaths = @(
+            "C:\msys64\ucrt64\lib\gstreamer-1.0",
+            "C:\msys64\mingw64\lib\gstreamer-1.0",
+            "C:\msys64\usr\lib\gstreamer-1.0"
+          )
+          foreach ($path in $pluginPaths) {
+            if (Test-Path $path) {
+              $count = (Get-ChildItem $path\*.dll -ErrorAction SilentlyContinue).Count
+              Write-Host "✓ Found $count plugins at: $path" -ForegroundColor Green
+            } else {
+              Write-Host "✗ Not found: $path" -ForegroundColor Yellow
+            }
+          }
 
       - name: Create Portable Package
         shell: pwsh
@@ -86,7 +120,18 @@ jobs:
 
           # Copy all MSYS2 DLLs
           Write-Host "Copying MSYS2 dependencies..."
-          Copy-Item "C:\msys64\ucrt64\bin\*.dll" "$outputDir\bin\" -ErrorAction SilentlyContinue
+          if (Test-Path "C:\msys64\ucrt64\bin") {
+            $dlls = Get-ChildItem "C:\msys64\ucrt64\bin\*.dll" -ErrorAction SilentlyContinue
+            if ($dlls.Count -gt 0) {
+              Copy-Item "C:\msys64\ucrt64\bin\*.dll" "$outputDir\bin\" -Force
+              Write-Host "  ✓ Copied $($dlls.Count) DLL files"
+            } else {
+              Write-Host "  ✗ No DLL files found in C:\msys64\ucrt64\bin"
+            }
+          } else {
+            Write-Host "  ✗ ERROR: C:\msys64\ucrt64\bin directory not found!"
+            exit 1
+          }
 
           # Copy GStreamer plugins
           Write-Host "Copying GStreamer plugins..."
