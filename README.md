@@ -1026,6 +1026,50 @@ that is apparently now fixed (a workaround is to use d3d11)._
 The executable uxplay.exe can also be run without the MSYS2 environment,
 in the Windows Terminal, with `C:\msys64\ucrt64\bin\uxplay`.
 
+## Running UxPlay on Windows - Important Notes
+
+### Bonjour Service Must Be Running
+
+On Windows, UxPlay requires the **Bonjour Service** to be running for DNS-SD
+service discovery. If UxPlay fails to start with an error like:
+
+```
+*** ERROR: dnssd_register_raop failed with error code -65563
+```
+
+This means the Bonjour Service is not running. To fix this:
+
+1. **Check Bonjour Service status** in PowerShell:
+   ```powershell
+   Get-Service "Bonjour Service"
+   ```
+
+2. **Start the service** if it's stopped:
+   ```powershell
+   Start-Service "Bonjour Service"
+   ```
+
+3. **Ensure it starts automatically** on system boot:
+   ```powershell
+   Set-Service -Name "Bonjour Service" -StartupType Automatic
+   ```
+
+Note: The Bonjour Service is installed with iTunes, Bonjour Print Services,
+or the Bonjour SDK. Even if installed, it may not be running by default.
+
+### Windows Firewall Configuration
+
+When you first run UxPlay, Windows may prompt you to allow network access.
+Make sure to allow access on **private networks** (your home WiFi). If you
+missed the prompt or need to configure it manually:
+
+- Go to **Windows Settings** → **Update and Security** → **Windows Security**
+  → **Firewall & network protection** → **Allow an app through firewall**
+- Find `uxplay.exe` and ensure it's allowed on your network type
+
+Your iOS device must be on the **same WiFi network** as your Windows PC for
+UxPlay to appear in the Screen Mirroring menu.
+
 # Usage
 
 Options:
@@ -1568,6 +1612,14 @@ start, stop, status. You might need to edit the avahi-daemon.conf file
 instead use the mdnsd daemon as an alternative to provide DNS-SD
 service. (FreeBSD offers both alternatives, but only Avahi was tested;
 see [here](https://gist.github.com/reidransom/6033227).)
+
+**On Windows**, DNS-SD is provided by Apple's **Bonjour Service**. If you see
+error code **-65563** (`*** ERROR: dnssd_register_raop failed with error code -65563`),
+this means the Bonjour Service is not running. See the
+[Windows-specific section](#running-uxplay-on-windows---important-notes)
+above for how to start and configure the Bonjour Service. The service is
+installed with iTunes, Bonjour Print Services, or the Bonjour SDK, but may
+not be running by default even if installed.
 
 -   **uxplay starts, but either stalls or stops after "Initialized
     server socket(s)" appears (*without the server name showing on the
